@@ -1,0 +1,11 @@
+# Local run history and credentials
+.agentic_history.json
+.env
+
+# Build artifacts
+agentic-go
+*.pyc
+__pycache__/
+
+# OS metadata
+.DS_Store
