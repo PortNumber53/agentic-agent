@@ -18,7 +18,7 @@ pipeline {
 
         stage('Deploy & Restart') {
             when {
-                branch 'main' // typically you'd deploy from main
+                branch 'master' // typically you'd deploy from master
             }
             steps {
                 script {
