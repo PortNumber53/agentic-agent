@@ -29,18 +29,23 @@ pipeline {
                     sh "ssh ${target} 'sudo mkdir -p ${CFG_DIR} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${CFG_DIR}'"
 
                     // Stop the existing background server if running
-                    sh "ssh ${target} 'pkill -f \"agentic-go --serve\" || true'"
+                    sh "ssh ${target} 'sudo systemctl stop agentic.service || true'"
 
-                    // Deploy binary and config templates
+                    // Deploy binary, config templates, and service file
                     sh "scp agentic-go ${target}:${APP_DIR}/agentic-go"
                     sh "scp config.example.json ${target}:${CFG_DIR}/config.example.json"
                     sh "scp mcp.example.json ${target}:${CFG_DIR}/mcp.example.json"
+                    sh "scp agentic.service ${target}:${APP_DIR}/agentic.service"
 
-                    // Make it executable
+                    // Install service and make it executable
                     sh "ssh ${target} 'chmod +x ${APP_DIR}/agentic-go'"
+                    sh "ssh ${target} 'sudo mv ${APP_DIR}/agentic.service /etc/systemd/system/agentic.service'"
+                    sh "ssh ${target} 'sudo chown root:root /etc/systemd/system/agentic.service'"
 
-                    // Start the service in the background (nohup)
-                    sh "ssh ${target} 'cd ${APP_DIR} && nohup ./agentic-go --serve > ${LOG_DIR}/agentic.log 2>&1 &'"
+                    // Start the service
+                    sh "ssh ${target} 'sudo systemctl daemon-reload'"
+                    sh "ssh ${target} 'sudo systemctl enable agentic.service'"
+                    sh "ssh ${target} 'sudo systemctl start agentic.service'"
                 }
             }
         }

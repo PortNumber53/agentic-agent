@@ -1,0 +1,17 @@
+[Unit]
+Description=Agentic Go Webhook Server
+After=network.target
+
+[Service]
+Type=simple
+User=grimlock
+Group=grimlock
+WorkingDirectory=/var/www/vhosts/agentic.dev.portnumber53.com
+ExecStart=/var/www/vhosts/agentic.dev.portnumber53.com/agentic-go --serve
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/www/vhosts/agentic.dev.portnumber53.com/logs/agentic.log
+StandardError=append:/var/www/vhosts/agentic.dev.portnumber53.com/logs/agentic.log
+
+[Install]
+WantedBy=multi-user.target
