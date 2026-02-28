@@ -53,6 +53,15 @@ func LoadMCPConfig() error {
 	configPath := filepath.Join(usr.HomeDir, ".agentic", "mcp.json")
 
 	b, err := os.ReadFile(configPath)
+	if err != nil && os.IsNotExist(err) {
+		globalPath := "/etc/agentic/mcp.json"
+		if b2, err2 := os.ReadFile(globalPath); err2 == nil {
+			b = b2
+			err = nil
+			configPath = globalPath
+		}
+	}
+
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // OK if it doesn't exist

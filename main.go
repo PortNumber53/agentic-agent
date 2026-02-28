@@ -147,6 +147,16 @@ func main() {
 
 	systemContent := "You are a highly capable AI programming assistant. You have access to a variety of tools (shell, web, read_file, write_file, list_dir, grep_search). Use them proactively to solve the user's request. Always examine files before modifying them, and explain your reasoning clearly."
 
+	var mcpNames []string
+	for _, t := range agentic.DefinedTools {
+		if strings.HasPrefix(t.Function.Name, "mcp_") {
+			mcpNames = append(mcpNames, t.Function.Name)
+		}
+	}
+	if len(mcpNames) > 0 {
+		systemContent += fmt.Sprintf("\n\nAvailable MCP Tools: %s\nYou MUST use these specialized MCP tools when interacting with their respective services instead of using the generic 'web' or 'shell' tools.", strings.Join(mcpNames, ", "))
+	}
+
 	// Inform the LLM about Docker execution context
 	if agent.DockerEnabled {
 		systemContent += "\n\nIMPORTANT: Your shell commands are executed inside a Docker container (image: " + agent.DockerImage + "). You are NOT running on the host machine. All shell tool invocations run inside this container. The container persists for the duration of the chat session, so installed packages and file changes are preserved between commands."
