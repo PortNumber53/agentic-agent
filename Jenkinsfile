@@ -36,11 +36,15 @@ pipeline {
                     sh "scp config.example.json ${target}:${CFG_DIR}/config.example.json"
                     sh "scp mcp.example.json ${target}:${CFG_DIR}/mcp.example.json"
                     sh "scp agentic.service ${target}:${APP_DIR}/agentic.service"
+                    sh "scp Dockerfile.webdev ${target}:${APP_DIR}/Dockerfile.webdev"
 
                     // Install service and make it executable
                     sh "ssh ${target} 'chmod +x ${APP_DIR}/agentic-go'"
                     sh "ssh ${target} 'sudo mv ${APP_DIR}/agentic.service /etc/systemd/system/agentic.service'"
                     sh "ssh ${target} 'sudo chown root:root /etc/systemd/system/agentic.service'"
+
+                    // Build local docker image
+                    sh "ssh ${target} 'cd ${APP_DIR} && docker build -f Dockerfile.webdev -t agentic-webdev:latest .'"
 
                     // Start the service
                     sh "ssh ${target} 'sudo systemctl daemon-reload'"

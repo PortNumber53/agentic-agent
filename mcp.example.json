@@ -1,14 +1,26 @@
 {
   "mcpServers": {
-    "jira-thing": {
-      "command": "node",
-      "args": ["/var/www/vhosts/agentic.dev.portnumber53.com/jira-mcp/build/index.js"],
+    "PROD-jira-thing": {
+      "enabled": true,
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "mcp-remote",
+        "https://jira-thing.truvis.co/mcp?mcp_secret=dfff55133152592adc8dfd55e36b53306d3ad27fe4c54785de0ae58668eb8808"
+      ],
       "env": {
-        "JIRA_URL": "https://your-domain.atlassian.net",
-        "JIRA_USERNAME": "bot@domain.com",
-        "JIRA_API_TOKEN": "api-token-here"
-      },
-      "disabled": false
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+      }
+    },
+    "jira-thing": {
+      "enabled": false,
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "mcp-remote",
+        "https://mcp-jirathing14.dev.portnumber53.com/mcp?mcp_secret=21027623ae689bc071732188aa7d364db57f82a630f8832faeac74b5dfd2cc06"
+      ],
+      "env": {
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+      }
     },
     "github-server": {
       "command": "npx",
