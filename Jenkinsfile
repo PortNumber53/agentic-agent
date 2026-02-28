@@ -46,6 +46,9 @@ pipeline {
                     sh "ssh ${target} 'sudo systemctl daemon-reload'"
                     sh "ssh ${target} 'sudo systemctl enable agentic.service'"
                     sh "ssh ${target} 'sudo systemctl start agentic.service'"
+
+                    // Fix log file ownership since systemd creates append-logs as root
+                    sh "ssh ${target} 'sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${LOG_DIR}'"
                 }
             }
         }
