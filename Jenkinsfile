@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'brain' }
+    agent any
 
     environment {
         DEPLOY_USER = 'grimlock'
