@@ -25,7 +25,7 @@ pipeline {
                     def target = "${DEPLOY_USER}@${DEPLOY_SERVER}"
 
                     // Ensure target directories exist
-                    sh "ssh ${target} 'mkdir -p ${APP_DIR} ${LOG_DIR}'"
+                    sh "ssh ${target} 'sudo mkdir -p ${APP_DIR} ${LOG_DIR} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${APP_DIR}'"
                     sh "ssh ${target} 'sudo mkdir -p ${CFG_DIR} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${CFG_DIR}'"
 
                     // Stop the existing background server if running
