@@ -31,3 +31,19 @@ Then point agentic to it via `~/.agentic/config.json`:
 You can also set `DOCKER_IMAGE=agentic-webdev:latest` as an environment override.
 
 The runtime now checks for local images first, and only pulls from a registry if the image is not present locally.
+
+## Server Mode
+
+The agent can run in server mode listening on port `20511` to automatically process webhook events from external systems.
+
+```bash
+./agentic-go --serve
+```
+
+Supported endpoints (expecting POST requests with incoming payloads):
+- `/webhook/github`
+- `/webhook/gitlab`
+- `/webhook/slack`
+- `/webhook/jira`
+
+When a webhook is received, the agent starts an isolated, autonomous task handler that parses the payload and performs background actions based on its capabilities (e.g., executing shell commands in Docker).

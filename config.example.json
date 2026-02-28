@@ -1,0 +1,11 @@
+{
+  "llm_provider": "openrouter",
+  "openrouter_api_key": "sk-or-v1-...",
+  "nvidia_api_key": "nvapi-...",
+  "model": "nvidia/nemotron-3-nano-30b-a3b:free",
+  "max_tokens": 16384,
+  "temperature": 1.0,
+  "invoke_url": "https://openrouter.ai/api/v1/chat/completions",
+  "docker_enabled": true,
+  "docker_image": "agentic-webdev:latest"
+}

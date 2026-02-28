@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "jira-thing": {
+      "command": "node",
+      "args": ["/var/www/vhosts/agentic.dev.portnumber53.com/jira-mcp/build/index.js"],
+      "env": {
+        "JIRA_URL": "https://your-domain.atlassian.net",
+        "JIRA_USERNAME": "bot@domain.com",
+        "JIRA_API_TOKEN": "api-token-here"
+      },
+      "disabled": false
+    },
+    "github-server": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."
+      },
+      "disabled": false
+    }
+  }
+}

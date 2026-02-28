@@ -31,6 +31,7 @@ type cliFlags struct {
 	showHelp    bool
 	showVersion bool
 	showConfig  bool
+	serve       bool
 	promptArgs  []string
 }
 
@@ -42,6 +43,7 @@ func parseCLIFlags(args []string) (cliFlags, error) {
 	fs.BoolVar(&out.showHelp, "help", false, "Show help")
 	fs.BoolVar(&out.showVersion, "version", false, "Show version")
 	fs.BoolVar(&out.showConfig, "config", false, "Show config path")
+	fs.BoolVar(&out.serve, "serve", false, "Run in server mode")
 
 	if err := fs.Parse(args); err != nil {
 		return out, err
@@ -65,11 +67,13 @@ func printUsage() {
 	fmt.Println("  agentic-go --help")
 	fmt.Println("  agentic-go --version")
 	fmt.Println("  agentic-go --config")
+	fmt.Println("  agentic-go --serve")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  --help      Show this help message")
 	fmt.Println("  --version   Print application version")
 	fmt.Println("  --config    Print path to ~/.agentic/config.json")
+	fmt.Println("  --serve     Run in server mode listening on port 20511")
 }
 
 func main() {
@@ -100,16 +104,12 @@ func main() {
 		return
 	}
 
-	// Load ~/.agentic/config.json as primary config
-	cfg, err := agentic.LoadConfig()
-	if err != nil {
-		fmt.Printf("%s[warning] %v%s\n", agentic.ColorError, err, agentic.ColorReset)
-	}
-
 	// .env provides local overrides (optional)
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("Warning: error loading .env file: %v\n", err)
 	}
+
+	agent := createNewAgent()
 
 	// Initialize MCP servers
 	if err := agentic.LoadMCPConfig(); err != nil {
@@ -139,86 +139,6 @@ func main() {
 		}
 		os.Exit(0)
 	}()
-
-	// Resolve config: config.json → .env → env var → default
-	// Priority: env vars > .env > config.json > defaults
-	provider := strings.ToLower(getConfigVal("LLM_PROVIDER", cfg.LLMProvider))
-	var apiKey, model, invokeURL string
-	var extraHeaders map[string]string
-
-	switch provider {
-	case "openrouter":
-		apiKey = getConfigVal("OPENROUTER_API_KEY", cfg.OpenRouterAPIKey)
-		if apiKey == "" {
-			fmt.Printf("%s[error] OPENROUTER_API_KEY is not set. Add it to ~/.agentic/config.json or .env%s\n", agentic.ColorError, agentic.ColorReset)
-			os.Exit(1)
-		}
-		model = getConfigVal("MODEL", cfg.Model)
-		if model == "" {
-			model = "nvidia/nemotron-3-nano-30b-a3b:free"
-		}
-		invokeURL = getConfigVal("INVOKE_URL", cfg.InvokeURL)
-		if invokeURL == "" {
-			invokeURL = "https://openrouter.ai/api/v1/chat/completions"
-		}
-		extraHeaders = map[string]string{
-			"HTTP-Referer": "https://github.com/agentic-go",
-			"X-Title":      "agentic-go",
-		}
-		fmt.Printf("%s[info] Using OpenRouter provider (model: %s)%s\n", agentic.ColorSystem, model, agentic.ColorReset)
-	default: // "nvidia" or unset
-		if provider == "" {
-			provider = "nvidia"
-		}
-		apiKey = getConfigVal("NVIDIA_API_KEY", cfg.NvidiaAPIKey)
-		if apiKey == "" {
-			fmt.Printf("%s[error] NVIDIA_API_KEY is not set. Add it to ~/.agentic/config.json or .env, or set llm_provider to openrouter.%s\n", agentic.ColorError, agentic.ColorReset)
-			os.Exit(1)
-		}
-		model = getConfigVal("MODEL", cfg.Model)
-		if model == "" {
-			model = "moonshotai/kimi-k2.5"
-		}
-		invokeURL = getConfigVal("INVOKE_URL", cfg.InvokeURL)
-		if invokeURL == "" {
-			invokeURL = "https://integrate.api.nvidia.com/v1/chat/completions"
-		}
-	}
-
-	// Max tokens: env > config.json > default
-	maxTokens := cfg.MaxTokens
-	if v, err := strconv.Atoi(os.Getenv("MAX_TOKENS")); err == nil && v > 0 {
-		maxTokens = v
-	}
-	if maxTokens <= 0 {
-		maxTokens = 16384
-	}
-
-	// Temperature: env > config.json > default
-	temp := cfg.Temperature
-	if v, err := strconv.ParseFloat(os.Getenv("TEMPERATURE"), 64); err == nil && v >= 0 {
-		temp = v
-	}
-	if temp < 0 {
-		temp = 1.0
-	}
-
-	agent := agentic.NewAgent(apiKey, model, invokeURL, maxTokens, temp, extraHeaders)
-	agent.Provider = provider
-
-	// Docker config: config.json → env override
-	agent.DockerEnabled = cfg.DockerEnabled
-	if strings.ToLower(os.Getenv("DOCKER_ENABLED")) == "true" {
-		agent.DockerEnabled = true
-	} else if strings.ToLower(os.Getenv("DOCKER_ENABLED")) == "false" {
-		agent.DockerEnabled = false
-	}
-	if cfg.DockerImage != "" {
-		agent.DockerImage = cfg.DockerImage
-	}
-	if img := os.Getenv("DOCKER_IMAGE"); img != "" {
-		agent.DockerImage = img
-	}
 
 	// Load shell command allowlist
 	agentic.Allowlist.Load()
@@ -250,6 +170,11 @@ func main() {
 	} else {
 		// Update system prompt in case AGENTIC.md changed
 		agent.History[0].Content = systemContent
+	}
+
+	if flags.serve {
+		startServer(systemContent)
+		return
 	}
 
 	if len(flags.promptArgs) > 0 {
@@ -630,4 +555,94 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 	}
 
 	fmt.Printf("\n%s[warning] Reached max iterations without a final answer.%s\n", agentic.ColorError, agentic.ColorReset)
+}
+
+func createNewAgent() *agentic.Agent {
+	// Load ~/.agentic/config.json as primary config
+	cfg, err := agentic.LoadConfig()
+	if err != nil {
+		fmt.Printf("%s[warning] %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+	}
+
+	// Resolve config: config.json → .env → env var → default
+	// Priority: env vars > .env > config.json > defaults
+	provider := strings.ToLower(getConfigVal("LLM_PROVIDER", cfg.LLMProvider))
+	var apiKey, model, invokeURL string
+	var extraHeaders map[string]string
+
+	switch provider {
+	case "openrouter":
+		apiKey = getConfigVal("OPENROUTER_API_KEY", cfg.OpenRouterAPIKey)
+		if apiKey == "" {
+			fmt.Printf("%s[error] OPENROUTER_API_KEY is not set. Add it to ~/.agentic/config.json or .env%s\n", agentic.ColorError, agentic.ColorReset)
+			os.Exit(1)
+		}
+		model = getConfigVal("MODEL", cfg.Model)
+		if model == "" {
+			model = "nvidia/nemotron-3-nano-30b-a3b:free"
+		}
+		invokeURL = getConfigVal("INVOKE_URL", cfg.InvokeURL)
+		if invokeURL == "" {
+			invokeURL = "https://openrouter.ai/api/v1/chat/completions"
+		}
+		extraHeaders = map[string]string{
+			"HTTP-Referer": "https://github.com/agentic-go",
+			"X-Title":      "agentic-go",
+		}
+		fmt.Printf("%s[info] Using OpenRouter provider (model: %s)%s\n", agentic.ColorSystem, model, agentic.ColorReset)
+	default: // "nvidia" or unset
+		if provider == "" {
+			provider = "nvidia"
+		}
+		apiKey = getConfigVal("NVIDIA_API_KEY", cfg.NvidiaAPIKey)
+		if apiKey == "" {
+			fmt.Printf("%s[error] NVIDIA_API_KEY is not set. Add it to ~/.agentic/config.json or .env, or set llm_provider to openrouter.%s\n", agentic.ColorError, agentic.ColorReset)
+			os.Exit(1)
+		}
+		model = getConfigVal("MODEL", cfg.Model)
+		if model == "" {
+			model = "moonshotai/kimi-k2.5"
+		}
+		invokeURL = getConfigVal("INVOKE_URL", cfg.InvokeURL)
+		if invokeURL == "" {
+			invokeURL = "https://integrate.api.nvidia.com/v1/chat/completions"
+		}
+	}
+
+	// Max tokens: env > config.json > default
+	maxTokens := cfg.MaxTokens
+	if v, err := strconv.Atoi(os.Getenv("MAX_TOKENS")); err == nil && v > 0 {
+		maxTokens = v
+	}
+	if maxTokens <= 0 {
+		maxTokens = 16384
+	}
+
+	// Temperature: env > config.json > default
+	temp := cfg.Temperature
+	if v, err := strconv.ParseFloat(os.Getenv("TEMPERATURE"), 64); err == nil && v >= 0 {
+		temp = v
+	}
+	if temp < 0 {
+		temp = 1.0
+	}
+
+	agent := agentic.NewAgent(apiKey, model, invokeURL, maxTokens, temp, extraHeaders)
+	agent.Provider = provider
+
+	// Docker config: config.json → env override
+	agent.DockerEnabled = cfg.DockerEnabled
+	if strings.ToLower(os.Getenv("DOCKER_ENABLED")) == "true" {
+		agent.DockerEnabled = true
+	} else if strings.ToLower(os.Getenv("DOCKER_ENABLED")) == "false" {
+		agent.DockerEnabled = false
+	}
+	if cfg.DockerImage != "" {
+		agent.DockerImage = cfg.DockerImage
+	}
+	if img := os.Getenv("DOCKER_IMAGE"); img != "" {
+		agent.DockerImage = img
+	}
+
+	return agent
 }
