@@ -148,6 +148,21 @@ func toolShell(args map[string]any) string {
 		timeout = time.Duration(timeoutF) * time.Second
 	}
 
+	// Check allowlist before execution
+	if !Allowlist.CheckCommand(cmdStr) {
+		return "[blocked] Command was not approved by user."
+	}
+
+	// Route through Docker if session is active
+	if ActiveDockerSession != nil {
+		fmt.Printf("\n%s[tool:shell:docker] $ %s%s\n", ColorTool, cmdStr, ColorReset)
+		result, err := ActiveDockerSession.Exec(cmdStr, timeout)
+		if err != nil {
+			return fmt.Sprintf("[error] docker exec: %v", err)
+		}
+		return result
+	}
+
 	fmt.Printf("\n%s[tool:shell] $ %s%s\n", ColorTool, cmdStr, ColorReset)
 
 	// Since we execute in sh/bash, we wrap the command

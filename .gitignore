@@ -1,5 +1,7 @@
 # Local run history and credentials
 .agentic_history.json
+.agentic_prompt_history
+.agentic_allowlist.json
 .env
 
 # Build artifacts

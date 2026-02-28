@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type Message struct {
@@ -48,14 +51,18 @@ type ToolFunction struct {
 }
 
 type Agent struct {
-	APIKey       string
-	Model        string
-	MaxTokens    int
-	Temperature  float64
-	InvokeURL    string
-	ExtraHeaders map[string]string
-	History      []Message
-	HistoryFile  string
+	APIKey        string
+	Model         string
+	MaxTokens     int
+	Temperature   float64
+	InvokeURL     string
+	ExtraHeaders  map[string]string
+	History       []Message
+	HistoryFile   string
+	Provider      string
+	StartTime     time.Time
+	DockerEnabled bool
+	DockerImage   string
 }
 
 func NewAgent(apiKey, model, invokeURL string, maxTokens int, temperature float64, extraHeaders map[string]string) *Agent {
@@ -67,6 +74,8 @@ func NewAgent(apiKey, model, invokeURL string, maxTokens int, temperature float6
 		InvokeURL:    invokeURL,
 		ExtraHeaders: extraHeaders,
 		HistoryFile:  ".agentic_history.json",
+		StartTime:    time.Now(),
+		DockerImage:  "ubuntu:22.04",
 	}
 }
 
@@ -155,4 +164,99 @@ func (a *Agent) CallLLM() (*Message, error) {
 	}
 
 	return &res.Choices[0].Message, nil
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
+
+func (a *Agent) GetConfig() map[string]string {
+	return map[string]string{
+		"LLM_PROVIDER":   a.Provider,
+		"MODEL":          a.Model,
+		"MAX_TOKENS":     strconv.Itoa(a.MaxTokens),
+		"TEMPERATURE":    strconv.FormatFloat(a.Temperature, 'f', 2, 64),
+		"INVOKE_URL":     a.InvokeURL,
+		"API_KEY":        maskKey(a.APIKey),
+		"DOCKER_ENABLED": strconv.FormatBool(a.DockerEnabled),
+		"DOCKER_IMAGE":   a.DockerImage,
+	}
+}
+
+func (a *Agent) SetConfig(key, value string) (string, error) {
+	key = strings.ToUpper(strings.TrimSpace(key))
+	value = strings.TrimSpace(value)
+
+	switch key {
+	case "MODEL":
+		old := a.Model
+		a.Model = value
+		return fmt.Sprintf("MODEL: %s → %s", old, value), nil
+	case "MAX_TOKENS":
+		v, err := strconv.Atoi(value)
+		if err != nil || v <= 0 {
+			return "", fmt.Errorf("MAX_TOKENS must be a positive integer")
+		}
+		old := a.MaxTokens
+		a.MaxTokens = v
+		return fmt.Sprintf("MAX_TOKENS: %d → %d", old, v), nil
+	case "TEMPERATURE":
+		v, err := strconv.ParseFloat(value, 64)
+		if err != nil || v < 0 {
+			return "", fmt.Errorf("TEMPERATURE must be a non-negative number")
+		}
+		old := a.Temperature
+		a.Temperature = v
+		return fmt.Sprintf("TEMPERATURE: %.2f → %.2f", old, v), nil
+	case "INVOKE_URL":
+		old := a.InvokeURL
+		a.InvokeURL = value
+		return fmt.Sprintf("INVOKE_URL: %s → %s", old, value), nil
+	case "DOCKER_ENABLED":
+		v := strings.ToLower(value)
+		if v != "true" && v != "false" {
+			return "", fmt.Errorf("DOCKER_ENABLED must be 'true' or 'false'")
+		}
+		old := a.DockerEnabled
+		a.DockerEnabled = v == "true"
+		return fmt.Sprintf("DOCKER_ENABLED: %v → %v", old, a.DockerEnabled), nil
+	case "DOCKER_IMAGE":
+		old := a.DockerImage
+		a.DockerImage = value
+		return fmt.Sprintf("DOCKER_IMAGE: %s → %s", old, value), nil
+	case "LLM_PROVIDER":
+		old := a.Provider
+		a.Provider = value
+		return fmt.Sprintf("LLM_PROVIDER: %s → %s", old, value), nil
+	case "API_KEY":
+		a.APIKey = value
+		return fmt.Sprintf("API_KEY: updated (masked: %s)", maskKey(value)), nil
+	default:
+		return "", fmt.Errorf("unknown config key: %s", key)
+	}
+}
+
+func (a *Agent) Status() string {
+	uptime := time.Since(a.StartTime).Round(time.Second)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("  Provider:       %s\n", a.Provider))
+	sb.WriteString(fmt.Sprintf("  Model:          %s\n", a.Model))
+	sb.WriteString(fmt.Sprintf("  Max Tokens:     %d\n", a.MaxTokens))
+	sb.WriteString(fmt.Sprintf("  Temperature:    %.2f\n", a.Temperature))
+	sb.WriteString(fmt.Sprintf("  History:        %d messages\n", len(a.History)))
+	sb.WriteString(fmt.Sprintf("  MCP Servers:    %d connected\n", len(mcpClients)))
+	sb.WriteString(fmt.Sprintf("  Docker:         enabled=%v image=%s\n", a.DockerEnabled, a.DockerImage))
+
+	if ActiveDockerSession != nil {
+		sb.WriteString(fmt.Sprintf("  Container:      %s (running)\n", ActiveDockerSession.ContainerID[:12]))
+	} else if a.DockerEnabled {
+		sb.WriteString("  Container:      not started\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("  Uptime:         %s\n", uptime))
+	return sb.String()
 }
