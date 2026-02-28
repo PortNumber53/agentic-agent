@@ -10,11 +10,11 @@ import (
 
 // AgenticConfig represents ~/.agentic/config.json
 type AgenticConfig struct {
-	LLMProvider    string `json:"llm_provider"`
-	Model          string `json:"model"`
-	MaxTokens      int    `json:"max_tokens"`
-	Temperature    float64 `json:"temperature"`
-	InvokeURL      string `json:"invoke_url,omitempty"`
+	LLMProvider string  `json:"llm_provider"`
+	Model       string  `json:"model"`
+	MaxTokens   int     `json:"max_tokens"`
+	Temperature float64 `json:"temperature"`
+	InvokeURL   string  `json:"invoke_url,omitempty"`
 
 	// API keys per provider
 	NvidiaAPIKey     string `json:"nvidia_api_key,omitempty"`
@@ -52,11 +52,23 @@ func LoadConfig() (AgenticConfig, error) {
 	cfg.MaxTokens = -1   // sentinel: unset
 
 	path := ConfigPath()
-	if path == "" {
-		return cfg, nil
+	var b []byte
+	var err error
+
+	if path != "" {
+		b, err = os.ReadFile(path)
 	}
 
-	b, err := os.ReadFile(path)
+	// Fallback to system-wide config if local config isn't found
+	if path == "" || (err != nil && os.IsNotExist(err)) {
+		globalPath := "/etc/agentic/config.json"
+		if b2, err2 := os.ReadFile(globalPath); err2 == nil {
+			b = b2
+			err = nil
+			path = globalPath
+		}
+	}
+
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
