@@ -13,9 +13,12 @@ import (
 )
 
 // JiraWebhookPayload represents the relevant fields from a Jira webhook event.
+// It supports both standard Jira webhooks and 'Automation format' webhooks.
 type JiraWebhookPayload struct {
 	WebhookEvent string `json:"webhookEvent"`
-	Issue        struct {
+	Timestamp    int64  `json:"timestamp"`
+	// Standard format: issue is nested
+	Issue struct {
 		Key    string `json:"key"`
 		Fields struct {
 			Summary     string `json:"summary"`
@@ -32,6 +35,23 @@ type JiraWebhookPayload struct {
 			} `json:"project"`
 		} `json:"fields"`
 	} `json:"issue"`
+	// Automation format (sometimes flat or slightly different)
+	// We'll use these as fallbacks in processJiraWebhook
+	Key    string `json:"key"`
+	Fields struct {
+		Summary     string `json:"summary"`
+		Description string `json:"description"`
+		IssueType   struct {
+			Name string `json:"name"`
+		} `json:"issuetype"`
+		Status struct {
+			Name string `json:"name"`
+		} `json:"status"`
+		Labels  []string `json:"labels"`
+		Project struct {
+			Key string `json:"key"`
+		} `json:"project"`
+	} `json:"fields"`
 }
 
 // selectPersona determines which agent persona to use based on issue type and labels.
@@ -129,14 +149,30 @@ func processJiraWebhook(payload string, baseSystemContent string) {
 	// Parse the Jira payload
 	var jiraPayload JiraWebhookPayload
 	if err := json.Unmarshal([]byte(payload), &jiraPayload); err != nil {
-		fmt.Printf("%s[warning] Failed to parse Jira payload, falling back to generic handler: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+		fmt.Printf("%s[warning] Failed to parse Jira JSON: %v. Using generic handler.%s\n", agentic.ColorError, err, agentic.ColorReset)
 		processWebhook("Jira", payload, baseSystemContent)
 		return
 	}
 
+	// Normalize payload: if it was a flat automation payload, move fields into the Issue struct
+	if jiraPayload.Issue.Key == "" && jiraPayload.Key != "" {
+		fmt.Printf("%s[info] Detected flat (automation format) Jira payload for %s%s\n", agentic.ColorSystem, jiraPayload.Key, agentic.ColorReset)
+		jiraPayload.Issue.Key = jiraPayload.Key
+		jiraPayload.Issue.Fields.Summary = jiraPayload.Fields.Summary
+		jiraPayload.Issue.Fields.Description = jiraPayload.Fields.Description
+		jiraPayload.Issue.Fields.IssueType = jiraPayload.Fields.IssueType
+		jiraPayload.Issue.Fields.Status = jiraPayload.Fields.Status
+		jiraPayload.Issue.Fields.Labels = jiraPayload.Fields.Labels
+		jiraPayload.Issue.Fields.Project = jiraPayload.Fields.Project
+	}
+
 	issueKey := jiraPayload.Issue.Key
 	if issueKey == "" {
-		fmt.Printf("%s[info] Jira webhook has no issue key (event: %s), using generic handler%s\n", agentic.ColorSystem, jiraPayload.WebhookEvent, agentic.ColorReset)
+		truncated := payload
+		if len(truncated) > 500 {
+			truncated = truncated[:500] + "..."
+		}
+		fmt.Printf("%s[info] Jira webhook has no issue key. Event type: '%s'. Payload snippet: %s%s\n", agentic.ColorSystem, jiraPayload.WebhookEvent, truncated, agentic.ColorReset)
 		processWebhook("Jira", payload, baseSystemContent)
 		return
 	}

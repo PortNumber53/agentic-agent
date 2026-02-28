@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestSelectPersona(t *testing.T) {
 	tests := []struct {
@@ -77,6 +80,34 @@ func TestBuildJiraAgentPrompt(t *testing.T) {
 	pmPrompt := buildJiraAgentPrompt(payload, "product-manager")
 	if contains(pmPrompt, "Branch Management") {
 		t.Errorf("Product manager prompt should NOT include branch management")
+	}
+}
+
+func TestJiraPayloadNormalization(t *testing.T) {
+	// Standard format
+	standardJSON := `{"webhookEvent":"jira:issue_updated","issue":{"key":"PROJ-1","fields":{"summary":"Test summary"}}}`
+	var p1 JiraWebhookPayload
+	json.Unmarshal([]byte(standardJSON), &p1)
+	if p1.Issue.Key != "PROJ-1" {
+		t.Errorf("Expected standard key PROJ-1, got %s", p1.Issue.Key)
+	}
+
+	// Flat (Automation) format
+	flatJSON := `{"key":"PROJ-2","fields":{"summary":"Flat summary"}}`
+	var p2 JiraWebhookPayload
+	json.Unmarshal([]byte(flatJSON), &p2)
+
+	// Simulation of normalization logic from server.go
+	if p2.Issue.Key == "" && p2.Key != "" {
+		p2.Issue.Key = p2.Key
+		p2.Issue.Fields.Summary = p2.Fields.Summary
+	}
+
+	if p2.Issue.Key != "PROJ-2" {
+		t.Errorf("Expected normalized key PROJ-2, got %s", p2.Issue.Key)
+	}
+	if p2.Issue.Fields.Summary != "Flat summary" {
+		t.Errorf("Expected normalized summary 'Flat summary', got %s", p2.Issue.Fields.Summary)
 	}
 }
 
