@@ -20,7 +20,7 @@ func TestToolListDir(t *testing.T) {
 
 	args := map[string]any{"dirpath": tmp}
 	b, _ := json.Marshal(args)
-	res := ExecuteTool("list_dir", string(b))
+	res := ExecuteTool("list_dir", string(b), false)
 
 	if !strings.Contains(res, "[file] test.txt") {
 		t.Errorf("expected to find test.txt, got: %s", res)
@@ -42,7 +42,7 @@ func TestToolGrepSearch(t *testing.T) {
 
 	args := map[string]any{"dirpath": tmp, "pattern": "hello grep"}
 	b, _ := json.Marshal(args)
-	res := ExecuteTool("grep_search", string(b))
+	res := ExecuteTool("grep_search", string(b), false)
 
 	if !strings.Contains(res, "test1.txt") {
 		t.Errorf("expected to find test1.txt, got: %s", res)

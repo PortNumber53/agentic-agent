@@ -108,7 +108,7 @@ var DefinedTools = []Tool{
 	},
 }
 
-func ExecuteTool(name, argsRaw string) string {
+func ExecuteTool(name, argsRaw string, autonomous bool) string {
 	// If the tool belongs to an MCP server, route it there
 	if strings.HasPrefix(name, "mcp_") {
 		return ExecuteMCPTool(name, argsRaw)
@@ -121,7 +121,7 @@ func ExecuteTool(name, argsRaw string) string {
 
 	switch name {
 	case "shell":
-		return toolShell(args)
+		return toolShell(args, autonomous)
 	case "web":
 		return toolWeb(args)
 	case "read_file":
@@ -137,7 +137,7 @@ func ExecuteTool(name, argsRaw string) string {
 	}
 }
 
-func toolShell(args map[string]any) string {
+func toolShell(args map[string]any, autonomous bool) string {
 	cmdStr, _ := args["command"].(string)
 	if cmdStr == "" {
 		return "[error] command is required"
@@ -149,8 +149,15 @@ func toolShell(args map[string]any) string {
 	}
 
 	// Check allowlist before execution
-	if !Allowlist.CheckCommand(cmdStr) {
-		return "[blocked] Command was not approved by user."
+	// If the agent is autonomous (server mode), we don't prompt for approval.
+	if autonomous {
+		if !Allowlist.IsAllowed(cmdStr) {
+			fmt.Printf("%s[allowlist:autonomous] auto-approving command: %s%s\n", ColorSystem, cmdStr, ColorReset)
+		}
+	} else {
+		if !Allowlist.CheckCommand(cmdStr) {
+			return "[blocked] Command was not approved by user."
+		}
 	}
 
 	// Route through Docker if session is active

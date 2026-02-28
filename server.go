@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -187,9 +188,11 @@ func processJiraWebhook(payload string, baseSystemContent string) {
 		agentic.ColorSystem, issueKey, jiraPayload.Issue.Fields.IssueType.Name, persona, agentic.ColorReset)
 
 	// Load persona template
-	agentMD, err := os.ReadFile("agents/" + persona + ".md")
+	wd, _ := os.Getwd()
+	personaPath := filepath.Join(wd, "agents", persona+".md")
+	agentMD, err := os.ReadFile(personaPath)
 	if err != nil {
-		fmt.Printf("%s[warning] Persona template not found: %s, using base system content%s\n", agentic.ColorError, persona, agentic.ColorReset)
+		fmt.Printf("%s[warning] Persona template not found at %s, using base system content: %v%s\n", agentic.ColorError, personaPath, err, agentic.ColorReset)
 		agentMD = []byte(baseSystemContent)
 	}
 
@@ -365,8 +368,8 @@ func runAutonomousAgent(agent *agentic.Agent) {
 		for _, tc := range msg.ToolCalls {
 			fnName := tc.Function.Name
 			fnArgs := tc.Function.Arguments
-
-			result := agentic.ExecuteTool(fnName, fnArgs)
+			// If autonomous (webhook/server), skip manual approvals
+			result := agentic.ExecuteTool(fnName, fnArgs, true)
 
 			agent.AppendMessage(agentic.Message{
 				Role:       "tool",

@@ -63,6 +63,7 @@ type Agent struct {
 	StartTime     time.Time
 	DockerEnabled bool
 	DockerImage   string
+	Autonomous    bool // If true, skip manual approvals (e.g. shell allowlist)
 }
 
 func NewAgent(apiKey, model, invokeURL string, maxTokens int, temperature float64, extraHeaders map[string]string) *Agent {
@@ -99,6 +100,22 @@ func (a *Agent) SaveHistory() {
 func (a *Agent) ClearHistory() {
 	a.History = []Message{}
 	os.Remove(a.HistoryFile)
+}
+
+func (a *Agent) HandleToolCalls(toolCalls []ToolCall) {
+	for _, call := range toolCalls {
+		fmt.Printf("%s[tool:%s] calling with args: %s%s\n", ColorTool, call.Function.Name, call.Function.Arguments, ColorReset)
+
+		res := ExecuteTool(call.Function.Name, call.Function.Arguments, a.Autonomous)
+
+		a.History = append(a.History, Message{
+			Role:       "tool",
+			ToolCallID: call.ID,
+			Name:       call.Function.Name,
+			Content:    res,
+		})
+	}
+	a.SaveHistory()
 }
 
 func (a *Agent) AppendMessage(msg Message) {

@@ -25,7 +25,7 @@ pipeline {
                     def target = "${DEPLOY_USER}@${DEPLOY_SERVER}"
 
                     // Ensure target directories exist
-                    sh "ssh ${target} 'sudo mkdir -p ${APP_DIR} ${LOG_DIR} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${APP_DIR}'"
+                    sh "ssh ${target} 'sudo mkdir -p ${APP_DIR} ${LOG_DIR} ${APP_DIR}/agents && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${APP_DIR}'"
                     sh "ssh ${target} 'sudo mkdir -p ${CFG_DIR} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${CFG_DIR}'"
 
                     // Stop the existing background server if running
@@ -37,6 +37,7 @@ pipeline {
                     sh "scp mcp.example.json ${target}:${CFG_DIR}/mcp.example.json"
                     sh "scp agentic.service ${target}:${APP_DIR}/agentic.service"
                     sh "scp Dockerfile.webdev ${target}:${APP_DIR}/Dockerfile.webdev"
+                    sh "scp -r agents/ ${target}:${APP_DIR}/agents/"
 
                     // Install service and make it executable
                     sh "ssh ${target} 'chmod +x ${APP_DIR}/agentic-go'"

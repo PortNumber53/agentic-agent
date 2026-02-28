@@ -553,7 +553,7 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 			fnName := tc.Function.Name
 			fnArgs := tc.Function.Arguments
 
-			result := agentic.ExecuteTool(fnName, fnArgs)
+			result := agentic.ExecuteTool(fnName, fnArgs, isLoop)
 
 			agent.AppendMessage(agentic.Message{
 				Role:       "tool",
