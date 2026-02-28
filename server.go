@@ -1,21 +1,212 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	agentic "agentic-go/internal/agentic"
 )
 
+// JiraWebhookPayload represents the relevant fields from a Jira webhook event.
+type JiraWebhookPayload struct {
+	WebhookEvent string `json:"webhookEvent"`
+	Issue        struct {
+		Key    string `json:"key"`
+		Fields struct {
+			Summary     string `json:"summary"`
+			Description string `json:"description"`
+			IssueType   struct {
+				Name string `json:"name"`
+			} `json:"issuetype"`
+			Status struct {
+				Name string `json:"name"`
+			} `json:"status"`
+			Labels  []string `json:"labels"`
+			Project struct {
+				Key string `json:"key"`
+			} `json:"project"`
+		} `json:"fields"`
+	} `json:"issue"`
+}
+
+// selectPersona determines which agent persona to use based on issue type and labels.
+// Priority: labels override issue type.
+func selectPersona(issueType string, labels []string) string {
+	// Check labels first (highest priority)
+	for _, label := range labels {
+		l := strings.ToLower(label)
+		switch {
+		case l == "qa" || l == "testing" || l == "test":
+			return "qa-engineer"
+		case l == "docs" || l == "documentation" || l == "product":
+			return "product-manager"
+		case l == "dev" || l == "engineering" || l == "code":
+			return "software-engineer"
+		}
+	}
+
+	// Fall back to issue type mapping
+	switch strings.ToLower(issueType) {
+	case "bug", "test", "qa":
+		return "qa-engineer"
+	case "documentation", "epic":
+		return "product-manager"
+	case "story", "task", "sub-task", "subtask", "improvement":
+		return "software-engineer"
+	default:
+		return "software-engineer" // default persona
+	}
+}
+
+// buildJiraAgentPrompt constructs a detailed prompt for the Jira webhook agent
+// based on the parsed payload and selected persona.
+func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
+	issue := payload.Issue
+	fields := issue.Fields
+
+	var sb strings.Builder
+
+	sb.WriteString("## Jira Issue Assigned to You\n\n")
+	sb.WriteString(fmt.Sprintf("- **Issue Key**: %s\n", issue.Key))
+	sb.WriteString(fmt.Sprintf("- **Summary**: %s\n", fields.Summary))
+	sb.WriteString(fmt.Sprintf("- **Issue Type**: %s\n", fields.IssueType.Name))
+	sb.WriteString(fmt.Sprintf("- **Current Status**: %s\n", fields.Status.Name))
+	sb.WriteString(fmt.Sprintf("- **Project**: %s\n", fields.Project.Key))
+	if len(fields.Labels) > 0 {
+		sb.WriteString(fmt.Sprintf("- **Labels**: %s\n", strings.Join(fields.Labels, ", ")))
+	}
+	sb.WriteString(fmt.Sprintf("\n### Description\n%s\n\n", fields.Description))
+
+	sb.WriteString("## Your Active Persona: " + persona + "\n\n")
+
+	// Common instructions for all personas
+	sb.WriteString("## Important Instructions\n\n")
+	sb.WriteString("### Jira Status Updates\n")
+	sb.WriteString("- Use `mcp_PROD-jira-thing_jiraIssueToolkit` with action `getTransitions` for issue `" + issue.Key + "` to discover available transitions.\n")
+	sb.WriteString("- Then use action `transitionIssue` to move the issue through its workflow as you make progress.\n\n")
+
+	sb.WriteString("### Clarification\n")
+	sb.WriteString("- If the story description is vague, incomplete, or missing acceptance criteria, **post a Jira comment** using `mcp_PROD-jira-thing_jiraIssueToolkit` with action `addComment` on issue `" + issue.Key + "` explaining what needs clarification.\n")
+	sb.WriteString("- Then output TASK_COMPLETED — do not guess at requirements.\n\n")
+
+	// Persona-specific instructions
+	if persona == "software-engineer" || persona == "qa-engineer" {
+		sb.WriteString("### Branch Management\n")
+		branchPrefix := "feature"
+		if persona == "qa-engineer" {
+			branchPrefix = "test"
+		}
+		sb.WriteString(fmt.Sprintf("- Check if a branch already exists: `git branch -a | grep -i %s`\n", issue.Key))
+		sb.WriteString(fmt.Sprintf("- If no branch exists, create one: `git checkout main && git pull && git checkout -b %s/%s`\n", branchPrefix, issue.Key))
+		sb.WriteString(fmt.Sprintf("- If the branch already exists, check it out: `git checkout %s/%s && git pull`\n\n", branchPrefix, issue.Key))
+
+		sb.WriteString("### Syntax Validation (MANDATORY before any commit)\n")
+		sb.WriteString("- Detect the project language from file extensions and build files.\n")
+		sb.WriteString("- Run the appropriate syntax checker:\n")
+		sb.WriteString("  - Go: `go vet ./...` and `go build ./...`\n")
+		sb.WriteString("  - Python: `python -m py_compile <file>`\n")
+		sb.WriteString("  - JavaScript/TypeScript: `node --check <file>` or `npx tsc --noEmit`\n")
+		sb.WriteString("- **DO NOT commit if any syntax errors are found.** Fix them first.\n\n")
+
+		sb.WriteString("### Commit & Push\n")
+		sb.WriteString(fmt.Sprintf("- Stage and commit: `git add -A && git commit -m \"%s: <concise description>\"`\n", issue.Key))
+		sb.WriteString(fmt.Sprintf("- Push: `git push origin %s/%s`\n\n", branchPrefix, issue.Key))
+	}
+
+	sb.WriteString("Process this task completely. Only output 'TASK_COMPLETED' and nothing else when you are unequivocally done.\n")
+
+	return sb.String()
+}
+
+// processJiraWebhook handles Jira webhooks with intelligent persona selection and
+// specialized prompting for branch management, syntax validation, and status updates.
+func processJiraWebhook(payload string, baseSystemContent string) {
+	// Parse the Jira payload
+	var jiraPayload JiraWebhookPayload
+	if err := json.Unmarshal([]byte(payload), &jiraPayload); err != nil {
+		fmt.Printf("%s[warning] Failed to parse Jira payload, falling back to generic handler: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+		processWebhook("Jira", payload, baseSystemContent)
+		return
+	}
+
+	issueKey := jiraPayload.Issue.Key
+	if issueKey == "" {
+		fmt.Printf("%s[info] Jira webhook has no issue key (event: %s), using generic handler%s\n", agentic.ColorSystem, jiraPayload.WebhookEvent, agentic.ColorReset)
+		processWebhook("Jira", payload, baseSystemContent)
+		return
+	}
+
+	// Select persona based on issue type and labels
+	persona := selectPersona(
+		jiraPayload.Issue.Fields.IssueType.Name,
+		jiraPayload.Issue.Fields.Labels,
+	)
+
+	fmt.Printf("%s[info] Jira issue %s (%s) → persona: %s%s\n",
+		agentic.ColorSystem, issueKey, jiraPayload.Issue.Fields.IssueType.Name, persona, agentic.ColorReset)
+
+	// Load persona template
+	agentMD, err := os.ReadFile("agents/" + persona + ".md")
+	if err != nil {
+		fmt.Printf("%s[warning] Persona template not found: %s, using base system content%s\n", agentic.ColorError, persona, agentic.ColorReset)
+		agentMD = []byte(baseSystemContent)
+	}
+
+	agent := createNewAgent()
+
+	// Start Docker session if needed
+	if agent.DockerEnabled && agentic.ActiveDockerSession == nil {
+		_, err := agentic.StartDockerSession(agent.DockerImage)
+		if err != nil {
+			fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+			agent.DockerEnabled = false
+		}
+	}
+
+	// Build system content from persona template
+	systemContent := string(agentMD)
+
+	// Add MCP tool awareness
+	var mcpNames []string
+	for _, t := range agentic.DefinedTools {
+		if strings.HasPrefix(t.Function.Name, "mcp_") {
+			mcpNames = append(mcpNames, t.Function.Name)
+		}
+	}
+	if len(mcpNames) > 0 {
+		systemContent += fmt.Sprintf("\n\nAvailable MCP Tools: %s\nYou MUST use these specialized MCP tools when interacting with Jira and GitHub instead of using the generic 'web' or 'shell' tools for API calls.", strings.Join(mcpNames, ", "))
+	}
+
+	if agent.DockerEnabled {
+		systemContent += "\n\nIMPORTANT: Your shell commands are executed inside a Docker container (image: " + agent.DockerImage + "). You are NOT running on the host machine."
+	}
+
+	agent.History = []agentic.Message{{Role: "system", Content: systemContent}}
+
+	timestamp := time.Now().Format("20060102_150405")
+	agent.HistoryFile = fmt.Sprintf(".agentic_webhook_jira_%s_%s.json", strings.ToLower(issueKey), timestamp)
+
+	// Build the detailed prompt
+	prompt := buildJiraAgentPrompt(jiraPayload, persona)
+
+	agent.AppendMessage(agentic.Message{Role: "user", Content: prompt})
+
+	fmt.Printf("%s[info] Starting Jira agent for %s with persona %s%s\n", agentic.ColorSystem, issueKey, persona, agentic.ColorReset)
+
+	runAutonomousAgent(agent)
+}
+
 func startServer(systemContent string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook/github", makeWebhookHandler("GitHub", systemContent))
 	mux.HandleFunc("/webhook/gitlab", makeWebhookHandler("GitLab", systemContent))
 	mux.HandleFunc("/webhook/slack", makeWebhookHandler("Slack", systemContent))
-	mux.HandleFunc("/webhook/jira", makeWebhookHandler("Jira", systemContent))
+	mux.HandleFunc("/webhook/jira", makeJiraWebhookHandler(systemContent))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -25,6 +216,29 @@ func startServer(systemContent string) {
 	fmt.Printf("%s[info] Starting agentic server on :20511...%s\n", agentic.ColorSystem, agentic.ColorReset)
 	if err := http.ListenAndServe(":20511", mux); err != nil {
 		fmt.Printf("%s[error] Server failed: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+	}
+}
+
+// makeJiraWebhookHandler returns a handler specifically for Jira webhooks that routes
+// to the specialized Jira processing pipeline.
+func makeJiraWebhookHandler(systemContent string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil || len(body) == 0 {
+			http.Error(w, "Failed to read body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		w.WriteHeader(http.StatusAccepted)
+		fmt.Fprintf(w, "Jira webhook received and processing started\n")
+
+		go processJiraWebhook(string(body), systemContent)
 	}
 }
 
