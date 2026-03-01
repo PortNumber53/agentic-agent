@@ -166,9 +166,12 @@ func (a *Agent) CallLLM() (*Message, int, error) {
 
 	// Trim history
 	sendHistory := make([]Message, 0, len(a.History))
-	if len(a.History) > 31 {
+	if len(a.History) > 40 {
 		sendHistory = append(sendHistory, a.History[0]) // Keep system prompt
-		sendHistory = append(sendHistory, a.History[len(a.History)-30:]...)
+		if len(a.History) > 1 {
+			sendHistory = append(sendHistory, a.History[1]) // Keep original task prompt or compaction summary
+		}
+		sendHistory = append(sendHistory, a.History[len(a.History)-38:]...)
 	} else {
 		sendHistory = a.History
 	}
