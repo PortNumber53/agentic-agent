@@ -145,23 +145,75 @@ func (a *Agent) CallLLM() (*Message, error) {
 		ToolChoice:  "auto",
 	}
 
-	b, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", a.InvokeURL, bytes.NewBuffer(b))
+	b, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+a.APIKey)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range a.ExtraHeaders {
-		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	client := &http.Client{Timeout: 60 * time.Second}
+	var resp *http.Response
+	maxRetries := 5
+
+	for retryNum := 0; retryNum < maxRetries; retryNum++ {
+		// Create a new request based on the bytes since Body is consumed
+		var req *http.Request
+		req, err = http.NewRequest("POST", a.InvokeURL, bytes.NewBuffer(b))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+a.APIKey)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range a.ExtraHeaders {
+			req.Header.Set(k, v)
+		}
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			fmt.Printf("\n%s[warning] LLM API Rate Limited (429). Attempt %d/%d...%s\n", ColorError, retryNum+1, maxRetries, ColorReset)
+
+			// Parse OpenRouter reset headers (Unix MS)
+			resetHeader := resp.Header.Get("X-RateLimit-Reset")
+			var sleepDuration time.Duration = 10 * time.Second // Default fallback
+
+			if resetHeader != "" {
+				if resetUnixMs, err := strconv.ParseInt(resetHeader, 10, 64); err == nil {
+					resetTime := time.UnixMilli(resetUnixMs)
+					now := time.Now()
+					if resetTime.After(now) {
+						sleepDuration = resetTime.Sub(now) + (2 * time.Second) // Add 2s buffer
+					}
+				}
+			}
+
+			// Also check standard Retry-After header just in case (seconds)
+			retryAfter := resp.Header.Get("Retry-After")
+			if retryAfter != "" {
+				if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+					sleepDuration = time.Duration(seconds)*time.Second + (2 * time.Second)
+				}
+			}
+
+			// Prevent astronomically long sleeps (cap at 5 minutes)
+			if sleepDuration > 5*time.Minute {
+				sleepDuration = 5 * time.Minute
+			}
+
+			fmt.Printf("%s[info] Sleeping %v before next API attempt...%s\n", ColorSystem, sleepDuration.Round(time.Second), ColorReset)
+
+			resp.Body.Close()
+			time.Sleep(sleepDuration)
+			continue
+		}
+
+		// Exit retry loop if not a 429
+		break
 	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
