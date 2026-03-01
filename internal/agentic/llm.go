@@ -100,8 +100,7 @@ type Agent struct {
 	DockerImage   string
 	GitHubToken   string
 	MaxIterations int
-	Autonomous    bool   // If true, skip manual approvals (e.g. shell allowlist)
-	State         string // Maintained REST API stateless memory
+	Autonomous    bool // If true, skip manual approvals (e.g. shell allowlist)
 }
 
 func NewAgent(apiKey, model, invokeURL string, maxTokens int, temperature float64, extraHeaders map[string]string) *Agent {
@@ -161,28 +160,17 @@ func (a *Agent) AppendMessage(msg Message) {
 	a.SaveHistory()
 }
 
-func (a *Agent) CallLLM() (*Message, error) {
+func (a *Agent) CallLLM() (*Message, int, error) {
 	// Proactively respect OpenRouter's 20/min free tier limit
 	enforceRateLimit()
 
 	// Trim history
 	sendHistory := make([]Message, 0, len(a.History))
 	if len(a.History) > 31 {
-		sysMsg := a.History[0]
-		if a.State != "" {
-			sysMsg.Content += "\n\n### Current Task State (Maintained by you)\n<state>\n" + a.State + "\n</state>"
-		}
-		sendHistory = append(sendHistory, sysMsg) // Keep system prompt
+		sendHistory = append(sendHistory, a.History[0]) // Keep system prompt
 		sendHistory = append(sendHistory, a.History[len(a.History)-30:]...)
 	} else {
-		// Just copy to avoid mutating actual history
-		for i, original := range a.History {
-			msg := original
-			if i == 0 && a.State != "" {
-				msg.Content += "\n\n### Current Task State (Maintained by you)\n<state>\n" + a.State + "\n</state>"
-			}
-			sendHistory = append(sendHistory, msg)
-		}
+		sendHistory = a.History
 	}
 
 	reqBody := ChatRequest{
@@ -197,7 +185,7 @@ func (a *Agent) CallLLM() (*Message, error) {
 
 	b, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -209,7 +197,7 @@ func (a *Agent) CallLLM() (*Message, error) {
 		var req *http.Request
 		req, err = http.NewRequest("POST", a.InvokeURL, bytes.NewBuffer(b))
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		req.Header.Set("Authorization", "Bearer "+a.APIKey)
 		req.Header.Set("Accept", "application/json")
@@ -220,7 +208,7 @@ func (a *Agent) CallLLM() (*Message, error) {
 
 		resp, err = client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -268,7 +256,72 @@ func (a *Agent) CallLLM() (*Message, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		out, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(out))
+		return nil, 0, fmt.Errorf("API error %d: %s", resp.StatusCode, string(out))
+	}
+
+	var res struct {
+		Choices []struct {
+			Message Message `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			TotalTokens int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, 0, err
+	}
+	if len(res.Choices) == 0 {
+		return nil, 0, fmt.Errorf("no choices returned")
+	}
+
+	return &res.Choices[0].Message, res.Usage.TotalTokens, nil
+}
+
+func (a *Agent) CompactHistory() error {
+	fmt.Printf("\n%s[system] Compacting conversation history to preserve context...%s\n", ColorSystem, ColorReset)
+
+	prompt := "You are approaching your context window limit. Please summarize the overarching goal, progress made so far, and the exact next steps needed to finish this issue. Be concise but do not lose critical technical details, file paths, or issue keys."
+
+	compactionHistory := append(a.History, Message{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	reqBody := ChatRequest{
+		Model:       a.Model,
+		Messages:    compactionHistory,
+		MaxTokens:   a.MaxTokens,
+		Temperature: a.Temperature,
+		TopP:        1.0,
+	}
+
+	b, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest("POST", a.InvokeURL, bytes.NewBuffer(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.APIKey)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range a.ExtraHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		out, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(out))
 	}
 
 	var res struct {
@@ -278,13 +331,23 @@ func (a *Agent) CallLLM() (*Message, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return nil, err
+		return err
 	}
 	if len(res.Choices) == 0 {
-		return nil, fmt.Errorf("no choices returned")
+		return fmt.Errorf("no choices returned")
 	}
 
-	return &res.Choices[0].Message, nil
+	// Truncate to [System, Summary]
+	newHistory := make([]Message, 0, 2)
+	if len(a.History) > 0 {
+		newHistory = append(newHistory, a.History[0]) // Keep system prompt
+	}
+	newHistory = append(newHistory, res.Choices[0].Message)
+
+	a.History = newHistory
+	a.SaveHistory()
+
+	return nil
 }
 
 func maskKey(key string) string {

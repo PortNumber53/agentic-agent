@@ -521,7 +521,7 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 	for i := 1; i <= maxIterations; i++ {
 		fmt.Printf("\n%s[info] Agent iteration %d/%d%s\n", agentic.ColorSystem, i, maxIterations, agentic.ColorReset)
 
-		msg, err := agent.CallLLM()
+		msg, totalTokens, err := agent.CallLLM()
 		if err != nil {
 			fmt.Printf("%s[error] LLM call failed: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 			return
@@ -531,6 +531,13 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 
 		if msg.Content != "" {
 			fmt.Printf("\n%s[agent] %s%s\n", agentic.ColorAgent, msg.Content, agentic.ColorReset)
+		}
+
+		// Trigger history compaction if nearing token limit
+		if agent.MaxTokens > 0 && float64(totalTokens) > float64(agent.MaxTokens)*0.90 {
+			if err := agent.CompactHistory(); err != nil {
+				fmt.Printf("%s[error] Failed to compact history: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+			}
 		}
 
 		if len(msg.ToolCalls) == 0 {

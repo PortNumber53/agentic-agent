@@ -378,7 +378,7 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 
 		fmt.Printf("\n%s[info] %s iteration %d/%d%s\n", agentic.ColorSystem, prefix, i, maxIterations, agentic.ColorReset)
 
-		msg, err := agent.CallLLM()
+		msg, totalTokens, err := agent.CallLLM()
 		if err != nil {
 			fmt.Printf("%s[error] %s LLM call failed: %v%s\n", agentic.ColorError, prefix, err, agentic.ColorReset)
 			return
@@ -400,17 +400,6 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 			isBlocked = true
 			idx := strings.Index(msg.Content, "TASK_BLOCKED:")
 			blockReason = strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
-		}
-
-		// Extract persistent self-maintained state
-		stateStart := strings.Index(msg.Content, "<state>")
-		stateEnd := strings.Index(msg.Content, "</state>")
-		if stateStart != -1 && stateEnd != -1 && stateEnd > stateStart {
-			extractedState := strings.TrimSpace(msg.Content[stateStart+len("<state>") : stateEnd])
-			if extractedState != "" {
-				agent.State = extractedState
-				fmt.Printf("\n%s[system][%s] Captured explicit stateless memory update.%s\n", agentic.ColorSystem, prefix, agentic.ColorReset)
-			}
 		}
 
 		if len(msg.ToolCalls) > 0 {
@@ -447,6 +436,13 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 				agentic.ExecuteTool("mcp_PROD-jira-thing_jiraIssueToolkit", string(commentArgsBytes), true)
 			}
 			return
+		}
+
+		// Trigger history compaction if nearing token limit
+		if agent.MaxTokens > 0 && float64(totalTokens) > float64(agent.MaxTokens)*0.90 {
+			if err := agent.CompactHistory(); err != nil {
+				fmt.Printf("%s[error] %s Failed to compact history: %v%s\n", agentic.ColorError, prefix, err, agentic.ColorReset)
+			}
 		}
 
 		if len(msg.ToolCalls) == 0 {
