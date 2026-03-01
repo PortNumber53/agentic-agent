@@ -160,6 +160,10 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 		sb.WriteString(fmt.Sprintf("- Push: `git push origin %s/%s`\n\n", branchPrefix, issue.Key))
 	}
 
+	sb.WriteString("### Memory & State Management\n")
+	sb.WriteString("Your conversation history is strictly truncated to 30 messages. To remember your overarching task, goals, and progress, you MUST persistently output your current state.\n")
+	sb.WriteString("Include a `<state>...</state>` block in your responses to update your memory. The system will extract this and provide it back to you at the top of your prompt in subsequent iterations.\n\n")
+
 	sb.WriteString("Process this task completely. Only output 'TASK_COMPLETED' and nothing else when you are unequivocally done.\n")
 	sb.WriteString("If you are completely stuck and cannot proceed (e.g. missing permissions, missing information, reproducible failures you cannot fix), output 'TASK_BLOCKED: <explain reason>' and stop.\n")
 
@@ -396,6 +400,17 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 			isBlocked = true
 			idx := strings.Index(msg.Content, "TASK_BLOCKED:")
 			blockReason = strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
+		}
+
+		// Extract persistent self-maintained state
+		stateStart := strings.Index(msg.Content, "<state>")
+		stateEnd := strings.Index(msg.Content, "</state>")
+		if stateStart != -1 && stateEnd != -1 && stateEnd > stateStart {
+			extractedState := strings.TrimSpace(msg.Content[stateStart+len("<state>") : stateEnd])
+			if extractedState != "" {
+				agent.State = extractedState
+				fmt.Printf("\n%s[system][%s] Captured explicit stateless memory update.%s\n", agentic.ColorSystem, prefix, agentic.ColorReset)
+			}
 		}
 
 		if len(msg.ToolCalls) > 0 {

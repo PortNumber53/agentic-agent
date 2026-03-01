@@ -100,7 +100,8 @@ type Agent struct {
 	DockerImage   string
 	GitHubToken   string
 	MaxIterations int
-	Autonomous    bool // If true, skip manual approvals (e.g. shell allowlist)
+	Autonomous    bool   // If true, skip manual approvals (e.g. shell allowlist)
+	State         string // Maintained REST API stateless memory
 }
 
 func NewAgent(apiKey, model, invokeURL string, maxTokens int, temperature float64, extraHeaders map[string]string) *Agent {
@@ -167,10 +168,21 @@ func (a *Agent) CallLLM() (*Message, error) {
 	// Trim history
 	sendHistory := make([]Message, 0, len(a.History))
 	if len(a.History) > 31 {
-		sendHistory = append(sendHistory, a.History[0]) // Keep system prompt
+		sysMsg := a.History[0]
+		if a.State != "" {
+			sysMsg.Content += "\n\n### Current Task State (Maintained by you)\n<state>\n" + a.State + "\n</state>"
+		}
+		sendHistory = append(sendHistory, sysMsg) // Keep system prompt
 		sendHistory = append(sendHistory, a.History[len(a.History)-30:]...)
 	} else {
-		sendHistory = a.History
+		// Just copy to avoid mutating actual history
+		for i, original := range a.History {
+			msg := original
+			if i == 0 && a.State != "" {
+				msg.Content += "\n\n### Current Task State (Maintained by you)\n<state>\n" + a.State + "\n</state>"
+			}
+			sendHistory = append(sendHistory, msg)
+		}
 	}
 
 	reqBody := ChatRequest{
