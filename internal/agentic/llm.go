@@ -63,6 +63,7 @@ type Agent struct {
 	StartTime     time.Time
 	DockerEnabled bool
 	DockerImage   string
+	GitHubToken   string
 	Autonomous    bool // If true, skip manual approvals (e.g. shell allowlist)
 }
 

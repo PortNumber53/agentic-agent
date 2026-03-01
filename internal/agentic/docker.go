@@ -45,7 +45,7 @@ func ensureDockerImage(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-func StartDockerSession(imageName string) (*DockerSession, error) {
+func StartDockerSession(imageName string, githubToken string) (*DockerSession, error) {
 	imageName = strings.TrimSpace(imageName)
 	if imageName == "" {
 		imageName = "ubuntu:22.04"
@@ -63,12 +63,19 @@ func StartDockerSession(imageName string) (*DockerSession, error) {
 		return nil, err
 	}
 
+	var env []string
+	if githubToken != "" {
+		env = append(env, "GITHUB_TOKEN="+githubToken)
+	}
+
 	// Create container with long-running entrypoint
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: imageName,
 		Cmd:   []string{"tail", "-f", "/dev/null"},
 		Tty:   false,
+		Env:   env,
 	}, nil, nil, nil, "")
+
 	if err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("failed to create container: %w", err)

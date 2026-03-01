@@ -196,7 +196,7 @@ func main() {
 
 	// Start Docker session if enabled
 	if agent.DockerEnabled {
-		_, err := agentic.StartDockerSession(agent.DockerImage)
+		_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 		if err != nil {
 			fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 			fmt.Printf("%s[info] Continuing without Docker...%s\n", agentic.ColorSystem, agentic.ColorReset)
@@ -321,7 +321,7 @@ func main() {
 			if agentic.ActiveDockerSession != nil {
 				agentic.StopDockerSession()
 				if agent.DockerEnabled {
-					_, err := agentic.StartDockerSession(agent.DockerImage)
+					_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 					if err != nil {
 						fmt.Printf("%s[error] Failed to restart Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 					}
@@ -440,7 +440,7 @@ func handleDockerConfigChange(agent *agentic.Agent, key string) {
 	case "DOCKER_ENABLED":
 		if agent.DockerEnabled {
 			if agentic.ActiveDockerSession == nil {
-				_, err := agentic.StartDockerSession(agent.DockerImage)
+				_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 				if err != nil {
 					fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 					agent.DockerEnabled = false
@@ -453,7 +453,7 @@ func handleDockerConfigChange(agent *agentic.Agent, key string) {
 		if agent.DockerEnabled && agentic.ActiveDockerSession != nil {
 			fmt.Printf("%s[info] Restarting Docker session with new image...%s\n", agentic.ColorSystem, agentic.ColorReset)
 			agentic.StopDockerSession()
-			_, err := agentic.StartDockerSession(agent.DockerImage)
+			_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 			if err != nil {
 				fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 			}
@@ -650,6 +650,14 @@ func createNewAgent() *agentic.Agent {
 	}
 	if img := os.Getenv("DOCKER_IMAGE"); img != "" {
 		agent.DockerImage = img
+	}
+
+	// GitHub Token: config.json → env override
+	if cfg.GitHubToken != "" {
+		agent.GitHubToken = cfg.GitHubToken
+	}
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		agent.GitHubToken = token
 	}
 
 	return agent

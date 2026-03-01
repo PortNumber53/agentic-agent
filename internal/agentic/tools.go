@@ -151,9 +151,13 @@ func toolShell(args map[string]any, autonomous bool) string {
 	// Check allowlist before execution
 	// If the agent is autonomous (server mode), we don't prompt for approval.
 	if autonomous {
-		if !Allowlist.IsAllowed(cmdStr) {
-			fmt.Printf("%s[allowlist:autonomous] auto-approving command: %s%s\n", ColorSystem, cmdStr, ColorReset)
-		}
+		// Suppress verbose auto-approval logs
+		/*
+			if !Allowlist.IsAllowed(cmdStr) {
+				fmt.Printf("%s[allowlist:autonomous] auto-approving command: %s%s\n", ColorSystem, cmdStr, ColorReset)
+			}
+		*/
+
 	} else {
 		if !Allowlist.CheckCommand(cmdStr) {
 			return "[blocked] Command was not approved by user."
@@ -162,7 +166,7 @@ func toolShell(args map[string]any, autonomous bool) string {
 
 	// Route through Docker if session is active
 	if ActiveDockerSession != nil {
-		fmt.Printf("\n%s[tool:shell:docker] $ %s%s\n", ColorTool, cmdStr, ColorReset)
+		fmt.Printf("%s[tool:shell:docker] $ %s%s\n", ColorTool, cmdStr, ColorReset)
 		result, err := ActiveDockerSession.Exec(cmdStr, timeout)
 		if err != nil {
 			return fmt.Sprintf("[error] docker exec: %v", err)
@@ -170,7 +174,7 @@ func toolShell(args map[string]any, autonomous bool) string {
 		return result
 	}
 
-	fmt.Printf("\n%s[tool:shell] $ %s%s\n", ColorTool, cmdStr, ColorReset)
+	fmt.Printf("%s[tool:shell] $ %s%s\n", ColorTool, cmdStr, ColorReset)
 
 	// Since we execute in sh/bash, we wrap the command
 	cmd := exec.Command("bash", "-c", cmdStr)

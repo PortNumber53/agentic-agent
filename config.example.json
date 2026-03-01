@@ -8,6 +8,7 @@
   "invoke_url": "https://openrouter.ai/api/v1/chat/completions",
   "docker_enabled": true,
   "docker_image": "agentic-webdev:latest",
+  "github_token": "ghp_YOUR_TOKEN_HERE",
   "jira_project_repos": {
     "WWR": "https://github.com/PortNumber53/agentic-agent.git"
   }

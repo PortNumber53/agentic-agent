@@ -24,6 +24,9 @@ type AgenticConfig struct {
 	DockerEnabled bool   `json:"docker_enabled"`
 	DockerImage   string `json:"docker_image,omitempty"`
 
+	// GitHub Token
+	GitHubToken string `json:"github_token,omitempty"`
+
 	// Jira to GitHub mapping
 	JiraProjectRepos map[string]string `json:"jira_project_repos,omitempty"`
 }

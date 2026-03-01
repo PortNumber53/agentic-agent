@@ -214,7 +214,7 @@ func processJiraWebhook(payload string, baseSystemContent string) {
 
 	// Start Docker session if needed
 	if agent.DockerEnabled && agentic.ActiveDockerSession == nil {
-		_, err := agentic.StartDockerSession(agent.DockerImage)
+		_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 		if err != nil {
 			fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 			agent.DockerEnabled = false
@@ -323,7 +323,7 @@ func processWebhook(source string, payload string, baseSystemContent string) {
 
 	// Start Docker session if needed for this agent run
 	if agent.DockerEnabled && agentic.ActiveDockerSession == nil {
-		_, err := agentic.StartDockerSession(agent.DockerImage)
+		_, err := agentic.StartDockerSession(agent.DockerImage, agent.GitHubToken)
 		if err != nil {
 			fmt.Printf("%s[error] Failed to start Docker session: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
 			agent.DockerEnabled = false
