@@ -386,47 +386,61 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 			fmt.Printf("\n%s[%s] %s%s\n", agentic.ColorAgent, prefix, msg.Content, agentic.ColorReset)
 		}
 
-		if len(msg.ToolCalls) == 0 {
-			if strings.Contains(msg.Content, "TASK_COMPLETED") {
-				fmt.Printf("\n%s%s%s finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, prefix, agentic.ColorReset)
-				return
-			}
-			if strings.Contains(msg.Content, "TASK_BLOCKED:") {
-				idx := strings.Index(msg.Content, "TASK_BLOCKED:")
-				reason := strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
-				fmt.Printf("\n%s%s%s is stuck. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, prefix, reason, agentic.ColorReset)
+		isFinished := false
+		isBlocked := false
+		var blockReason string
 
-				if issueKey != "" {
-					commentArgs := map[string]any{
-						"action":       "/comment",
-						"issueIdOrKey": issueKey,
-						"commentBody":  fmt.Sprintf("Agent stopped tracking this issue.\nStatus: BLOCKED\nReason: %s", reason),
-					}
-					commentArgsBytes, _ := json.Marshal(commentArgs)
-					agentic.ExecuteTool("mcp_PROD-jira-thing_jiraIssueToolkit", string(commentArgsBytes), true)
-				}
-				return
+		if strings.Contains(msg.Content, "TASK_COMPLETED") {
+			isFinished = true
+		} else if strings.Contains(msg.Content, "TASK_BLOCKED:") {
+			isBlocked = true
+			idx := strings.Index(msg.Content, "TASK_BLOCKED:")
+			blockReason = strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			for _, tc := range msg.ToolCalls {
+				fnName := tc.Function.Name
+				fnArgs := tc.Function.Arguments
+				// If autonomous (webhook/server), skip manual approvals
+				result := agentic.ExecuteTool(fnName, fnArgs, true)
+
+				agent.AppendMessage(agentic.Message{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Name:       fnName,
+					Content:    result,
+				})
 			}
+		}
+
+		if isFinished {
+			fmt.Printf("\n%s%s%s finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, prefix, agentic.ColorReset)
+			return
+		}
+
+		if isBlocked {
+			fmt.Printf("\n%s%s%s is stuck. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, prefix, blockReason, agentic.ColorReset)
+
+			if issueKey != "" {
+				commentArgs := map[string]any{
+					"action":       "/comment",
+					"issueIdOrKey": issueKey,
+					"commentBody":  fmt.Sprintf("Agent stopped tracking this issue.\nStatus: BLOCKED\nReason: %s", blockReason),
+				}
+				commentArgsBytes, _ := json.Marshal(commentArgs)
+				agentic.ExecuteTool("mcp_PROD-jira-thing_jiraIssueToolkit", string(commentArgsBytes), true)
+			}
+			return
+		}
+
+		if len(msg.ToolCalls) == 0 {
 			fmt.Printf("\n%s[system][%s] Injecting loop continuation prompt.%s\n", agentic.ColorSystem, prefix, agentic.ColorReset)
 			agent.AppendMessage(agentic.Message{
 				Role:    "user",
 				Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely stuck, output 'TASK_BLOCKED: <reason>'. If you are entirely finished, state 'TASK_COMPLETED'.",
 			})
 			continue
-		}
-
-		for _, tc := range msg.ToolCalls {
-			fnName := tc.Function.Name
-			fnArgs := tc.Function.Arguments
-			// If autonomous (webhook/server), skip manual approvals
-			result := agentic.ExecuteTool(fnName, fnArgs, true)
-
-			agent.AppendMessage(agentic.Message{
-				Role:       "tool",
-				ToolCallID: tc.ID,
-				Name:       fnName,
-				Content:    result,
-			})
 		}
 	}
 
