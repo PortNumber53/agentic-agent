@@ -115,6 +115,20 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 	sb.WriteString("- If the story description is vague, incomplete, or missing acceptance criteria, **post a Jira comment** using `mcp_PROD-jira-thing_jiraIssueToolkit` with action `addComment` on issue `" + issue.Key + "` explaining what needs clarification.\n")
 	sb.WriteString("- Then output TASK_COMPLETED — do not guess at requirements.\n\n")
 
+	// GitHub Integration
+	cfg, err := agentic.LoadConfig()
+	repoURL := ""
+	if err == nil && cfg.JiraProjectRepos != nil {
+		repoURL = cfg.JiraProjectRepos[fields.Project.Key]
+	}
+
+	if repoURL != "" {
+		sb.WriteString("### GitHub Repository\n")
+		sb.WriteString(fmt.Sprintf("- The repository for this project is: `%s`\n", repoURL))
+		sb.WriteString("- Before making changes, check if it's already cloned in your workspace.\n")
+		sb.WriteString(fmt.Sprintf("- If not, clone it: `git clone %s /workspace`\n\n", repoURL))
+	}
+
 	// Persona-specific instructions
 	if persona == "software-engineer" || persona == "qa-engineer" {
 		sb.WriteString("### Branch Management\n")

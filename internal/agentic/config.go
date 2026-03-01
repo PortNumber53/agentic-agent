@@ -23,6 +23,9 @@ type AgenticConfig struct {
 	// Docker
 	DockerEnabled bool   `json:"docker_enabled"`
 	DockerImage   string `json:"docker_image,omitempty"`
+
+	// Jira to GitHub mapping
+	JiraProjectRepos map[string]string `json:"jira_project_repos,omitempty"`
 }
 
 // ConfigDir returns the path to ~/.agentic/
@@ -107,6 +110,9 @@ func WriteSampleConfig() error {
 		OpenRouterAPIKey: "sk-or-v1-YOUR-KEY-HERE",
 		DockerEnabled:    false,
 		DockerImage:      "ubuntu:22.04",
+		JiraProjectRepos: map[string]string{
+			"WWR": "https://github.com/PortNumber53/agentic-agent.git",
+		},
 	}
 
 	b, err := json.MarshalIndent(sample, "", "  ")
