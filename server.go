@@ -154,6 +154,7 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 	}
 
 	sb.WriteString("Process this task completely. Only output 'TASK_COMPLETED' and nothing else when you are unequivocally done.\n")
+	sb.WriteString("If you are completely stuck and cannot proceed (e.g. missing permissions, missing information, reproducible failures you cannot fix), output 'TASK_BLOCKED: <explain reason>' and stop.\n")
 
 	return sb.String()
 }
@@ -251,7 +252,7 @@ func processJiraWebhook(payload string, baseSystemContent string) {
 
 	fmt.Printf("%s[info] Starting Jira agent for %s with persona %s%s\n", agentic.ColorSystem, issueKey, persona, agentic.ColorReset)
 
-	runAutonomousAgent(agent)
+	runAutonomousAgent(agent, issueKey)
 }
 
 func startServer(systemContent string) {
@@ -344,11 +345,14 @@ func processWebhook(source string, payload string, baseSystemContent string) {
 
 	agent.AppendMessage(agentic.Message{Role: "user", Content: prompt})
 
-	runAutonomousAgent(agent)
+	runAutonomousAgent(agent, "")
 }
 
-func runAutonomousAgent(agent *agentic.Agent) {
-	maxIterations := 50
+func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
+	maxIterations := agent.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = 50
+	}
 	for i := 1; i <= maxIterations; i++ {
 		fmt.Printf("\n%s[info] Webhook Agent iteration %d/%d%s\n", agentic.ColorSystem, i, maxIterations, agentic.ColorReset)
 
@@ -369,10 +373,26 @@ func runAutonomousAgent(agent *agentic.Agent) {
 				fmt.Printf("\n%s%sWebhook processing finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, agentic.ColorReset)
 				return
 			}
+			if strings.Contains(msg.Content, "TASK_BLOCKED:") {
+				idx := strings.Index(msg.Content, "TASK_BLOCKED:")
+				reason := strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
+				fmt.Printf("\n%s%sWebhook agent is stuck. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, reason, agentic.ColorReset)
+
+				if issueKey != "" {
+					commentArgs := map[string]any{
+						"action":       "/comment",
+						"issueIdOrKey": issueKey,
+						"commentBody":  fmt.Sprintf("Agent stopped tracking this issue.\nStatus: BLOCKED\nReason: %s", reason),
+					}
+					commentArgsBytes, _ := json.Marshal(commentArgs)
+					agentic.ExecuteTool("mcp_PROD-jira-thing_jiraIssueToolkit", string(commentArgsBytes), true)
+				}
+				return
+			}
 			fmt.Printf("\n%s[system] Injecting loop continuation prompt.%s\n", agentic.ColorSystem, agentic.ColorReset)
 			agent.AppendMessage(agentic.Message{
 				Role:    "user",
-				Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely finished and your goals are met, simply state 'TASK_COMPLETED' and nothing else.",
+				Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely stuck, output 'TASK_BLOCKED: <reason>'. If you are entirely finished, state 'TASK_COMPLETED'.",
 			})
 			continue
 		}
@@ -393,4 +413,14 @@ func runAutonomousAgent(agent *agentic.Agent) {
 	}
 
 	fmt.Printf("\n%s[warning] Webhook agent reached max iterations without finishing.%s\n", agentic.ColorError, agentic.ColorReset)
+
+	if issueKey != "" {
+		commentArgs := map[string]any{
+			"action":       "/comment",
+			"issueIdOrKey": issueKey,
+			"commentBody":  fmt.Sprintf("Agent stopped tracking this issue.\nStatus: MAX_ITERATIONS_REACHED\nReason: Reached maximum allocated iterations (%d) without completing the task.", maxIterations),
+		}
+		commentArgsBytes, _ := json.Marshal(commentArgs)
+		agentic.ExecuteTool("mcp_PROD-jira-thing_jiraIssueToolkit", string(commentArgsBytes), true)
+	}
 }

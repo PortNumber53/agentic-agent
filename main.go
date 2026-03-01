@@ -509,8 +509,13 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 	}
 
 	maxIterations := 15
+	if agent.MaxIterations > 0 {
+		maxIterations = agent.MaxIterations
+	}
 	if isLoop {
-		maxIterations = 50 // Extended loop
+		if agent.MaxIterations <= 0 {
+			maxIterations = 50 // Extended loop default
+		}
 		fmt.Printf("%s[info] Starting Ralph Wiggum Autonomous Loop (Max: %d)%s\n", agentic.ColorSystem, maxIterations, agentic.ColorReset)
 	}
 	for i := 1; i <= maxIterations; i++ {
@@ -535,10 +540,16 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 					fmt.Printf("\n%s%sRalph loop finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, agentic.ColorReset)
 					return
 				}
+				if strings.Contains(msg.Content, "TASK_BLOCKED:") {
+					idx := strings.Index(msg.Content, "TASK_BLOCKED:")
+					reason := strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
+					fmt.Printf("\n%s%sRalph loop stopped: Agent reported being blocked. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, reason, agentic.ColorReset)
+					return
+				}
 				fmt.Printf("\n%s[system] Injecting loop continuation prompt.%s\n", agentic.ColorSystem, agentic.ColorReset)
 				agent.AppendMessage(agentic.Message{
 					Role:    "user",
-					Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely finished and your goals are met, simply state 'TASK_COMPLETED' and nothing else.",
+					Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely stuck, output 'TASK_BLOCKED: <reason>'. If you are entirely finished, state 'TASK_COMPLETED'.",
 				})
 				continue
 			}
@@ -637,6 +648,14 @@ func createNewAgent() *agentic.Agent {
 
 	agent := agentic.NewAgent(apiKey, model, invokeURL, maxTokens, temp, extraHeaders)
 	agent.Provider = provider
+
+	// Max Iterations: config.json -> env override
+	if cfg.MaxIterations > 0 {
+		agent.MaxIterations = cfg.MaxIterations
+	}
+	if v, err := strconv.Atoi(os.Getenv("MAX_ITERATIONS")); err == nil && v > 0 {
+		agent.MaxIterations = v
+	}
 
 	// Docker config: config.json → env override
 	agent.DockerEnabled = cfg.DockerEnabled

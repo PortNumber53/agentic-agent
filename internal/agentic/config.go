@@ -27,7 +27,11 @@ type AgenticConfig struct {
 	// GitHub Token
 	GitHubToken string `json:"github_token,omitempty"`
 
+	// Autonomous limits
+	MaxIterations int `json:"max_iterations,omitempty"`
+
 	// Jira to GitHub mapping
+
 	JiraProjectRepos map[string]string `json:"jira_project_repos,omitempty"`
 }
 

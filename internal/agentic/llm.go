@@ -64,6 +64,7 @@ type Agent struct {
 	DockerEnabled bool
 	DockerImage   string
 	GitHubToken   string
+	MaxIterations int
 	Autonomous    bool // If true, skip manual approvals (e.g. shell allowlist)
 }
 
