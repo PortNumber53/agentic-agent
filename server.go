@@ -113,7 +113,7 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 
 	sb.WriteString("### Clarification\n")
 	sb.WriteString("- If the story description is vague, incomplete, or missing acceptance criteria, **post a Jira comment** using `mcp_PROD-jira-thing_jiraIssueToolkit` with action `addComment` on issue `" + issue.Key + "` explaining what needs clarification.\n")
-	sb.WriteString("- Then output TASK_COMPLETED — do not guess at requirements.\n\n")
+	sb.WriteString("- Then output `TASK_BLOCKED: <your clarification question>` — do not guess at requirements.\n\n")
 
 	// GitHub Integration
 	cfg, err := agentic.LoadConfig()
@@ -367,29 +367,34 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 		maxIterations = 50
 	}
 	for i := 1; i <= maxIterations; i++ {
-		fmt.Printf("\n%s[info] Webhook Agent iteration %d/%d%s\n", agentic.ColorSystem, i, maxIterations, agentic.ColorReset)
+		prefix := "Webhook Agent"
+		if issueKey != "" {
+			prefix = fmt.Sprintf("[%s] Webhook Agent", issueKey)
+		}
+
+		fmt.Printf("\n%s[info] %s iteration %d/%d%s\n", agentic.ColorSystem, prefix, i, maxIterations, agentic.ColorReset)
 
 		msg, err := agent.CallLLM()
 		if err != nil {
-			fmt.Printf("%s[error] LLM call failed: %v%s\n", agentic.ColorError, err, agentic.ColorReset)
+			fmt.Printf("%s[error] %s LLM call failed: %v%s\n", agentic.ColorError, prefix, err, agentic.ColorReset)
 			return
 		}
 
 		agent.AppendMessage(*msg)
 
 		if msg.Content != "" {
-			fmt.Printf("\n%s[webhook agent] %s%s\n", agentic.ColorAgent, msg.Content, agentic.ColorReset)
+			fmt.Printf("\n%s[%s] %s%s\n", agentic.ColorAgent, prefix, msg.Content, agentic.ColorReset)
 		}
 
 		if len(msg.ToolCalls) == 0 {
 			if strings.Contains(msg.Content, "TASK_COMPLETED") {
-				fmt.Printf("\n%s%sWebhook processing finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, agentic.ColorReset)
+				fmt.Printf("\n%s%s%s finished successfully.%s\n", agentic.ColorAgent, agentic.ColorBold, prefix, agentic.ColorReset)
 				return
 			}
 			if strings.Contains(msg.Content, "TASK_BLOCKED:") {
 				idx := strings.Index(msg.Content, "TASK_BLOCKED:")
 				reason := strings.TrimSpace(msg.Content[idx+len("TASK_BLOCKED:"):])
-				fmt.Printf("\n%s%sWebhook agent is stuck. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, reason, agentic.ColorReset)
+				fmt.Printf("\n%s%s%s is stuck. Reason: %s%s\n", agentic.ColorError, agentic.ColorBold, prefix, reason, agentic.ColorReset)
 
 				if issueKey != "" {
 					commentArgs := map[string]any{
@@ -402,7 +407,7 @@ func runAutonomousAgent(agent *agentic.Agent, issueKey string) {
 				}
 				return
 			}
-			fmt.Printf("\n%s[system] Injecting loop continuation prompt.%s\n", agentic.ColorSystem, agentic.ColorReset)
+			fmt.Printf("\n%s[system][%s] Injecting loop continuation prompt.%s\n", agentic.ColorSystem, prefix, agentic.ColorReset)
 			agent.AppendMessage(agentic.Message{
 				Role:    "user",
 				Content: "Are you unequivocally done with the task requested? If not, continue working and outputting tool calls. If you are entirely stuck, output 'TASK_BLOCKED: <reason>'. If you are entirely finished, state 'TASK_COMPLETED'.",
