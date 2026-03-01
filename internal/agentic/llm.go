@@ -9,8 +9,43 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+var (
+	llmReqTimestamps []time.Time
+	llmReqMutex      sync.Mutex
+)
+
+func enforceRateLimit() {
+	llmReqMutex.Lock()
+	defer llmReqMutex.Unlock()
+
+	now := time.Now()
+	minuteAgo := now.Add(-time.Minute)
+
+	// Filter timestamps older than 1 minute
+	window := make([]time.Time, 0, len(llmReqTimestamps))
+	for _, t := range llmReqTimestamps {
+		if t.After(minuteAgo) {
+			window = append(window, t)
+		}
+	}
+	llmReqTimestamps = window
+
+	// OpenRouter Free tier is 20 requests per minute. Leave a tiny buffer.
+	if len(llmReqTimestamps) >= 19 {
+		oldest := llmReqTimestamps[0]
+		sleepDuration := time.Minute - now.Sub(oldest) + (1 * time.Second)
+		if sleepDuration > 0 {
+			fmt.Printf("\n%s[info] Proactive Rate Limit hit (19 reqs/min). Sleeping %v...%s\n", ColorSystem, sleepDuration.Round(time.Second), ColorReset)
+			time.Sleep(sleepDuration)
+		}
+	}
+
+	llmReqTimestamps = append(llmReqTimestamps, time.Now())
+}
 
 type Message struct {
 	Role       string     `json:"role"`
@@ -126,6 +161,9 @@ func (a *Agent) AppendMessage(msg Message) {
 }
 
 func (a *Agent) CallLLM() (*Message, error) {
+	// Proactively respect OpenRouter's 20/min free tier limit
+	enforceRateLimit()
+
 	// Trim history
 	sendHistory := make([]Message, 0, len(a.History))
 	if len(a.History) > 31 {

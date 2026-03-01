@@ -123,10 +123,15 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 	}
 
 	if repoURL != "" {
+		cloneURL := repoURL
+		if strings.HasPrefix(cloneURL, "https://github.com/") {
+			cloneURL = strings.Replace(cloneURL, "https://github.com/", "https://$GITHUB_TOKEN@github.com/", 1)
+		}
+
 		sb.WriteString("### GitHub Repository\n")
 		sb.WriteString(fmt.Sprintf("- The repository for this project is: `%s`\n", repoURL))
 		sb.WriteString("- Before making changes, check if it's already cloned in your workspace.\n")
-		sb.WriteString(fmt.Sprintf("- If not, clone it: `git clone %s /workspace`\n\n", repoURL))
+		sb.WriteString(fmt.Sprintf("- If not, clone it: `git clone \"%s\" /workspace`\n\n", cloneURL))
 	}
 
 	// Persona-specific instructions
