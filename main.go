@@ -514,9 +514,7 @@ func runAgentStep(agent *agentic.Agent, prompt string, systemContent string) {
 		fmt.Printf("%s[info] Starting Ralph Wiggum Autonomous Loop (Max: %d)%s\n", agentic.ColorSystem, maxIterations, agentic.ColorReset)
 	}
 	for i := 1; i <= maxIterations; i++ {
-		fmt.Printf("\n%s%s============================================================%s\n", agentic.ColorSystem, agentic.ColorBold, agentic.ColorReset)
-		fmt.Printf("%s%s  Agent iteration %d/%d%s\n", agentic.ColorSystem, agentic.ColorBold, i, maxIterations, agentic.ColorReset)
-		fmt.Printf("%s%s============================================================%s\n", agentic.ColorSystem, agentic.ColorBold, agentic.ColorReset)
+		fmt.Printf("\n%s[info] Agent iteration %d/%d%s\n", agentic.ColorSystem, i, maxIterations, agentic.ColorReset)
 
 		msg, err := agent.CallLLM()
 		if err != nil {

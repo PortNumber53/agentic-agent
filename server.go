@@ -350,9 +350,7 @@ func processWebhook(source string, payload string, baseSystemContent string) {
 func runAutonomousAgent(agent *agentic.Agent) {
 	maxIterations := 50
 	for i := 1; i <= maxIterations; i++ {
-		fmt.Printf("\n%s%s============================================================%s\n", agentic.ColorSystem, agentic.ColorBold, agentic.ColorReset)
-		fmt.Printf("%s%s  Webhook Agent iteration %d/%d%s\n", agentic.ColorSystem, agentic.ColorBold, i, maxIterations, agentic.ColorReset)
-		fmt.Printf("%s%s============================================================%s\n", agentic.ColorSystem, agentic.ColorBold, agentic.ColorReset)
+		fmt.Printf("\n%s[info] Webhook Agent iteration %d/%d%s\n", agentic.ColorSystem, i, maxIterations, agentic.ColorReset)
 
 		msg, err := agent.CallLLM()
 		if err != nil {
