@@ -126,6 +126,8 @@ func buildJiraAgentPrompt(payload JiraWebhookPayload, persona string) string {
 		cloneURL := repoURL
 		if strings.HasPrefix(cloneURL, "https://github.com/") {
 			cloneURL = strings.Replace(cloneURL, "https://github.com/", "https://$GITHUB_TOKEN@github.com/", 1)
+		} else if strings.HasPrefix(cloneURL, "git@github.com:") {
+			cloneURL = strings.Replace(cloneURL, "git@github.com:", "https://$GITHUB_TOKEN@github.com/", 1)
 		}
 
 		sb.WriteString("### GitHub Repository\n")
@@ -255,6 +257,9 @@ func processJiraWebhook(payload string, baseSystemContent string) {
 
 	agent.AppendMessage(agentic.Message{Role: "user", Content: prompt})
 
+	promptLogFile := strings.Replace(agent.HistoryFile, ".json", "_prompt.md", 1)
+	os.WriteFile(promptLogFile, []byte(systemContent+"\n\n---\n\n"+prompt), 0644)
+
 	fmt.Printf("%s[info] Starting Jira agent for %s with persona %s%s\n", agentic.ColorSystem, issueKey, persona, agentic.ColorReset)
 
 	runAutonomousAgent(agent, issueKey)
@@ -349,6 +354,9 @@ func processWebhook(source string, payload string, baseSystemContent string) {
 	prompt := fmt.Sprintf("You received a %s webhook with the following payload:\n%s\n\nProcess this webhook completely and perform any requested actions. Only output 'TASK_COMPLETED' and nothing else when you are unequivocally done with processing.", source, payload)
 
 	agent.AppendMessage(agentic.Message{Role: "user", Content: prompt})
+
+	promptLogFile := strings.Replace(agent.HistoryFile, ".json", "_prompt.md", 1)
+	os.WriteFile(promptLogFile, []byte(systemContent+"\n\n---\n\n"+prompt), 0644)
 
 	runAutonomousAgent(agent, "")
 }
